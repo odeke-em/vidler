@@ -82,7 +82,7 @@ func download(di downloader.DownloadItem, res http.ResponseWriter, req *http.Req
 		return
 	}
 
-	downloader.Download(di, res, req)
+	downloader.Download(di.URI, res, req)
 }
 
 func extrictMp4(di downloader.DownloadItem, res http.ResponseWriter, req *http.Request) {

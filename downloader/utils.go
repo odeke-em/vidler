@@ -25,8 +25,7 @@ func headerShallowCopy(from, to http.Header) {
 	}
 }
 
-func HeadGet(di DownloadItem, res http.ResponseWriter, req *http.Request) error {
-	uri := di.URI
+func HeadGet(uri string, res http.ResponseWriter, req *http.Request) error {
 	headResponse, err := http.Head(uri)
 
 	if err != nil {
@@ -39,9 +38,7 @@ func HeadGet(di DownloadItem, res http.ResponseWriter, req *http.Request) error 
 	return nil
 }
 
-func Download(di DownloadItem, res http.ResponseWriter, req *http.Request) {
-	uri := di.URI
-
+func Download(uri string, res http.ResponseWriter, req *http.Request) {
 	downloadResult, err := http.Get(uri)
 
 	if err != nil {
