@@ -7,11 +7,11 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/go-martini/martini"
 	"github.com/martini-contrib/binding"
 	"github.com/odeke-em/extrict/src"
+	"github.com/odeke-em/vidler/downloader"
 
 	"github.com/odeke-em/extractor"
 )
@@ -22,81 +22,6 @@ var envKeyAlias = &extractor.EnvKey{
 }
 
 var envKeySet = extractor.KeySetFromEnv(envKeyAlias)
-
-type DownloadItem struct {
-	URI       string `form:"uri" binding:"required"`
-	PublicKey string `form:"pubkey" binding:"-"`
-	Signature string `form:"signature" binding:"-"`
-}
-
-func headerShallowCopy(from, to http.Header) {
-	for k, v := range from {
-		to.Set(k, strings.Join(v, ","))
-	}
-}
-
-func headGet(di DownloadItem, res http.ResponseWriter, req *http.Request) error {
-	uri := di.URI
-	headResponse, err := http.Head(uri)
-
-	if err != nil {
-		return err
-	}
-
-	dlHeader := headResponse.Header
-	headerShallowCopy(dlHeader, res.Header())
-
-	return nil
-}
-
-func download(di DownloadItem, res http.ResponseWriter, req *http.Request) {
-	uri := di.URI
-
-	if di.PublicKey != envKeySet.PublicKey {
-		http.Error(res, "invalid publickey", 400)
-		return
-	}
-
-	if !envKeySet.Match([]byte(uri), []byte(di.Signature)) {
-		http.Error(res, "invalid signature", 400)
-		return
-	}
-
-	fmt.Println("matching!")
-
-	downloadResult, err := http.Get(uri)
-
-	if err != nil {
-		fmt.Fprintf(res, "%v", err)
-		return
-	}
-
-	if downloadResult == nil || downloadResult.Body == nil {
-		fmt.Fprintf(res, "could not get %q", uri)
-		return
-	}
-
-	body := downloadResult.Body
-	dlHeader := downloadResult.Header
-
-	if downloadResult.Close {
-		defer body.Close()
-	}
-
-	headerShallowCopy(dlHeader, res.Header())
-
-	basename := filepath.Base(uri)
-	extraHeaders := map[string][]string{
-		"Content-Disposition": []string{
-			fmt.Sprintf("attachment;filename=%q", basename),
-		},
-	}
-
-	headerShallowCopy(extraHeaders, res.Header())
-
-	res.WriteHeader(200)
-	io.Copy(res, body)
-}
 
 func actionableLinkForm(uri string) string {
 	return fmt.Sprintf(
@@ -115,12 +40,7 @@ func actionableLinkForm(uri string) string {
     `, uri)
 }
 
-type uriInsert struct {
-	UriList []string
-	source  string
-}
-
-func uriInsertions(w io.Writer, ut uriInsert) {
+func uriInsertions(w io.Writer, ut downloader.UriInsert) {
 	t := template.New("newiters")
 	t = t.Funcs(template.FuncMap{
 		"basename": filepath.Base,
@@ -151,7 +71,21 @@ func requestDownloadForm(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, actionableLinkForm("/extrict"))
 }
 
-func extrictMp4(di DownloadItem, res http.ResponseWriter, req *http.Request) {
+func download(di downloader.DownloadItem, res http.ResponseWriter, req *http.Request) {
+	if di.PublicKey != envKeySet.PublicKey {
+		http.Error(res, "invalid publickey", 400)
+		return
+	}
+
+	if !envKeySet.Match([]byte(di.URI), []byte(di.Signature)) {
+		http.Error(res, "invalid signature", 400)
+		return
+	}
+
+	downloader.Download(di, res, req)
+}
+
+func extrictMp4(di downloader.DownloadItem, res http.ResponseWriter, req *http.Request) {
 	hites := extrict.CrawlAndMatchByExtension(di.URI, "mp4", 1)
 	// fmt.Println("di.URI", di.URI)
 	cache := map[string]bool{}
@@ -188,7 +122,7 @@ func extrictMp4(di DownloadItem, res http.ResponseWriter, req *http.Request) {
             <br />
         `, hitCount, plurality, di.URI, di.URI)
 
-		uriInsertions(res, uriInsert{UriList: hitList, source: di.URI})
+		uriInsertions(res, downloader.UriInsert{UriList: hitList, Source: di.URI})
 	}
 
 	fmt.Fprintf(res,
@@ -219,11 +153,11 @@ func main() {
 	m := martini.Classic()
 
 	m.Get("/", requestDownloadForm)
-	m.Get("/head", binding.Bind(DownloadItem{}), headGet)
-	m.Get("/download", binding.Bind(DownloadItem{}), download)
+	m.Get("/head", binding.Bind(downloader.DownloadItem{}), downloader.HeadGet)
+	m.Get("/download", binding.Bind(downloader.DownloadItem{}), download)
 
-	m.Post("/extrict", binding.Bind(DownloadItem{}), extrictMp4)
-	m.Post("/download", binding.Bind(DownloadItem{}), download)
+	m.Post("/extrict", binding.Bind(downloader.DownloadItem{}), extrictMp4)
+	m.Post("/download", binding.Bind(downloader.DownloadItem{}), download)
 
 	m.Run()
 }
