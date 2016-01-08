@@ -30,7 +30,7 @@ func actionableLinkForm(uri string) string {
             <title>Extract videos from a link</title>
             <body>
                 <form action=%q method="POST">
-                    <label name="uri_label">URI with mp4 videos to crawl </label>
+                    <label name="uri_label">URI with media of extensions mp4, gif, webm to crawl </label>
                     <input name="uri" value="https://vine.co/channels/comedy"></input>
                     <br />
                     <button type="submit">Submit</button>
@@ -50,13 +50,16 @@ func uriInsertions(w io.Writer, ut downloader.UriInsert) {
 		"pubkey": func() string {
 			return envKeySet.PublicKey
 		},
+		"contentType": func() string {
+			return ut.ContentType
+		},
 	})
 
 	t, _ = t.Parse(
 		`
     {{ range .UriList }}
         <video width="70%" controls>
-            <source src="{{ . }}" type="video/mp4">{{ basename . }}</source>
+            <source src="{{ . }}" type="{{ contentType }}">{{ basename . }}</source>
         </video>
         <br />
         <a href="/download?uri={{ . }}&signature={{ sign . }}&pubkey={{ pubkey }}">Download</a>
@@ -68,7 +71,19 @@ func uriInsertions(w io.Writer, ut downloader.UriInsert) {
 }
 
 func requestDownloadForm(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintf(w, actionableLinkForm("/extrict"))
+	fmt.Fprintf(w, actionableLinkForm("/extrict/mp4"))
+}
+
+func requestDownloadFormGif(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprintf(w, actionableLinkForm("/extrict/gif"))
+}
+
+func requestDownloadFormWebm(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprintf(w, actionableLinkForm("/extrict/webm"))
+}
+
+func requestDownloadFormPng(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprintf(w, actionableLinkForm("/extrict/png"))
 }
 
 func download(di downloader.DownloadItem, res http.ResponseWriter, req *http.Request) {
@@ -85,20 +100,48 @@ func download(di downloader.DownloadItem, res http.ResponseWriter, req *http.Req
 	downloader.Download(di.URI, res, req)
 }
 
+var extensionToMimeType = map[string]string{
+	"mp4":  "video/mp4",
+	"gif":  "image/gif",
+	"webm": "video/webm",
+	"mp3":  "audio/mp3",
+}
+
 func extrictMp4(di downloader.DownloadItem, res http.ResponseWriter, req *http.Request) {
-	hites := extrict.CrawlAndMatchByExtension(di.URI, "mp4", 1)
+	extrictMedia("mp4", di, res, req)
+}
+
+func extrictGif(di downloader.DownloadItem, res http.ResponseWriter, req *http.Request) {
+	extrictMedia("gif", di, res, req)
+}
+
+func extrictWebm(di downloader.DownloadItem, res http.ResponseWriter, req *http.Request) {
+	extrictMedia("webm", di, res, req)
+}
+
+func extrictPng(di downloader.DownloadItem, res http.ResponseWriter, req *http.Request) {
+	extrictMedia("png", di, res, req)
+}
+
+func extrictMedia(extensionKey string, di downloader.DownloadItem, res http.ResponseWriter, req *http.Request) {
+	hits := extrict.CrawlAndMatchByExtension(di.URI, extensionKey, 1)
 	// fmt.Println("di.URI", di.URI)
 	cache := map[string]bool{}
 
 	hitList := []string{}
 
-	for hit := range hites {
+	for hit := range hits {
 		if _, ok := cache[hit]; ok {
 			continue
 		}
 
 		hitList = append(hitList, hit)
 		cache[hit] = true
+	}
+
+	contentType, ok := extensionToMimeType[extensionKey]
+	if !ok {
+		contentType = "application/octet-stream"
 	}
 
 	// fmt.Println(hitList)
@@ -122,7 +165,7 @@ func extrictMp4(di downloader.DownloadItem, res http.ResponseWriter, req *http.R
             <br />
         `, hitCount, plurality, di.URI, di.URI)
 
-		uriInsertions(res, downloader.UriInsert{UriList: hitList, Source: di.URI})
+		uriInsertions(res, downloader.UriInsert{UriList: hitList, Source: di.URI, ContentType: contentType})
 	}
 
 	fmt.Fprintf(res,
@@ -153,10 +196,16 @@ func main() {
 	m := martini.Classic()
 
 	m.Get("/", requestDownloadForm)
+	m.Get("/gif", requestDownloadFormGif)
+	m.Get("/webm", requestDownloadFormWebm)
+	m.Get("/png", requestDownloadFormPng)
 	m.Get("/head", binding.Bind(downloader.DownloadItem{}), downloader.HeadGet)
 	m.Get("/download", binding.Bind(downloader.DownloadItem{}), download)
 
-	m.Post("/extrict", binding.Bind(downloader.DownloadItem{}), extrictMp4)
+	m.Post("/extrict/gif", binding.Bind(downloader.DownloadItem{}), extrictGif)
+	m.Post("/extrict/mp4", binding.Bind(downloader.DownloadItem{}), extrictMp4)
+	m.Post("/extrict/webm", binding.Bind(downloader.DownloadItem{}), extrictWebm)
+	m.Post("/extrict/png", binding.Bind(downloader.DownloadItem{}), extrictPng)
 	m.Post("/download", binding.Bind(downloader.DownloadItem{}), download)
 
 	m.Run()

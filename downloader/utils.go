@@ -17,6 +17,7 @@ type DownloadItem struct {
 type UriInsert struct {
 	UriList []string
 	Source  string
+	ContentType string
 }
 
 func headerShallowCopy(from, to http.Header) {
