@@ -55,18 +55,26 @@ func uriInsertions(w io.Writer, ut downloader.UriInsert) {
 		},
 	})
 
-	t, _ = t.Parse(
+	t, err := t.Parse(
 		`
     {{ range .UriList }}
+      {{ if or (eq contentType "video/mp4") (eq contentType "video/webm") }}
         <video width="70%" controls>
-            <source src="{{ . }}" type="{{ contentType }}">{{ basename . }}</source>
+            <source src="{{ . }}" type="{{ contentType }}" alt="{{ basename . }}"></source>
         </video>
+      {{else}}
+	<img src="{{ . }}" alt="{{ basename . }}"></img>
+      {{end}}
         <br />
         <a href="/download?uri={{ . }}&signature={{ sign . }}&pubkey={{ pubkey }}">Download</a>
         <br />
         <br />
     {{ end }}
     `)
+	if err != nil {
+		io.WriteString(w, err.Error())
+		return
+	}
 	t.Execute(w, ut)
 }
 
